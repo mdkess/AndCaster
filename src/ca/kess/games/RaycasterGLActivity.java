@@ -17,7 +17,7 @@ public class RaycasterGLActivity extends Activity {
         super.onCreate(savedInstanceState);
         
         mGLSurfaceView = new GLSurfaceView(this);
-        mRenderer = new RaycasterGLRenderer();
+        mRenderer = new RaycasterGLRenderer(this);
         mGLSurfaceView.setRenderer(mRenderer);
         //mGLSurfaceView.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
         
