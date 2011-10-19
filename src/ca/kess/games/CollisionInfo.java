@@ -8,4 +8,6 @@ public class CollisionInfo {
     public int WallType;
     //The position along the wall of the collision (for texturing purposes).
     public double CollisionPosition;
+    //The angle from the player to this collision
+    public double Angle;
 }

@@ -17,4 +17,8 @@ Coming in the near future:
 - Levels.
 
 
-Wall Texture from: http://findicons.com/icon/177327/wall#
+Wall Textures from: http://findicons.com/icon/177327/wall#
+
+BUGS
+
+- Off by one (I think) when casting one side. This makes some walls not intersect, not good!

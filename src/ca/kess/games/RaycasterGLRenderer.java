@@ -43,18 +43,34 @@ public class RaycasterGLRenderer implements Renderer {
     private final int mTileHeight = 64;
     private final int mTileDepth = 64;
     
+    private final int mPlayerHeight = mTileHeight / 2;
     
-    private int mTextures[];
+    
+    private int[] mTextures = new int[2];
 
 
+    /// GL INFO FOR WALLS
     private CollisionInfo[] mWalls;
     private float[] mWallCoords;
     private float[] mWallColors;
-    private float[] mTextureCoords;
+    private float[] mWallTextureCoords;
     
-    private FloatBuffer mVertexBuffer;
-    private FloatBuffer mColorBuffer;
-    private FloatBuffer mTextureBuffer;
+    private FloatBuffer mWallVertexBuffer;
+    private FloatBuffer mWallColorBuffer;
+    private FloatBuffer mWallTextureBuffer;
+
+    /// GL INFO FOR FLOORS
+    private float[] mFloorCoords;
+    private float[] mFloorColors;
+    private float[] mFloorTextureCoords;
+    
+    private FloatBuffer mFloorVertexBuffer;
+    private FloatBuffer mFloorColorBuffer;
+    private FloatBuffer mFloorTextureBuffer;
+    
+    private int mNumFloorPixels;
+    
+    
     
     private Context mContext;
     
@@ -62,29 +78,37 @@ public class RaycasterGLRenderer implements Renderer {
         mContext = context;
     }
 
-    public void loadTextures(GL10 gl) {
-        mTextures = new int[1];
+    private int loadTexture(GL10 gl, Bitmap bitmap) {
+        int[] textureID = new int[1];
+        gl.glGenTextures(1, textureID, 0);
         
-        gl.glGenTextures(1, mTextures, 0);
-        
-        gl.glBindTexture(GL10.GL_TEXTURE_2D, mTextures[0]);
+        gl.glBindTexture(GL10.GL_TEXTURE_2D, textureID[0]);
         // Create Nearest Filtered Texture
-        gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MIN_FILTER, GL10.GL_LINEAR);
-        gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MAG_FILTER, GL10.GL_LINEAR);
+        gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MIN_FILTER, GL10.GL_NEAREST);
+        gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MAG_FILTER, GL10.GL_NEAREST);
         
         gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_S, GL10.GL_REPEAT);
         gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_T, GL10.GL_REPEAT);
 
-        Bitmap texture = BitmapFactory.decodeResource(mContext.getResources(), R.drawable.wall);
-        GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, texture, 0);
+        GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, bitmap, 0);
+        
+        return textureID[0];
+    }
+    
+    public void loadTextures(GL10 gl) {
+        
+        Bitmap wallTexture = BitmapFactory.decodeResource(mContext.getResources(), R.drawable.wall);
+        Bitmap floorTexture = BitmapFactory.decodeResource(mContext.getResources(), R.drawable.wall_red);
+        mTextures[0] = loadTexture(gl, wallTexture);
+        mTextures[1] = loadTexture(gl, floorTexture);
     }
     
     @Override
     public void onDrawFrame(GL10 gl) {
         updateGame();
-        
+        mNumFloorPixels = 0;
         //Calculate wall coords
-        for(int w=0; w < mWalls.length; ++w) {
+        for(int w=0; w < mScreenWidth; ++w) {
             double wallHeight = (mTileDepth / mWalls[w].Distance) * mDistanceToClipPlane;
             mWallCoords[4 * w + 0] = w;
             mWallCoords[4 * w + 1] = (float) ((mScreenHeight - wallHeight) / 2.0);
@@ -103,27 +127,46 @@ public class RaycasterGLRenderer implements Renderer {
             mWallColors[8 * w + 6] = intensity;
             mWallColors[8 * w + 7] = 1.0f;
             
-            mTextureCoords[4 * w + 0] = (float) mWalls[w].CollisionPosition;
-            mTextureCoords[4 * w + 1] = 1.0f;
-            mTextureCoords[4 * w + 2] = (float) mWalls[w].CollisionPosition;
-            mTextureCoords[4 * w + 3] = 0.0f;
+            mWallTextureCoords[4 * w + 0] = (float) mWalls[w].CollisionPosition;
+            mWallTextureCoords[4 * w + 1] = 1.0f;
+            mWallTextureCoords[4 * w + 2] = (float) mWalls[w].CollisionPosition;
+            mWallTextureCoords[4 * w + 3] = 0.0f;
+            
+            int midPointRow = mScreenHeight / 2;
+            for(int h = (int)mWallCoords[4 * w + 1]; h >= 0; --h) {
+                
+                //Figure out the straight line distance to the point
+                float straightDistance = (float) ((mDistanceToClipPlane * mPlayerHeight) / (midPointRow - h));
+                straightDistance /= Math.cos(mWalls[w].Angle - mPlayerAngle);
+                //Figure out where on the floor this point lies
+                float texX = (float) (mPlayerX + straightDistance * Math.cos(mWalls[w].Angle)) / mTileHeight;
+                float texY = (float) (mPlayerY + straightDistance * Math.sin(mWalls[w].Angle)) / mTileWidth;
+                
+                mFloorCoords[2 * mNumFloorPixels + 0] = w;
+                mFloorCoords[2 * mNumFloorPixels + 1] = h;
+                
+                mFloorTextureCoords[2 * mNumFloorPixels + 0] =  texX;
+                mFloorTextureCoords[2 * mNumFloorPixels + 1] =  texY;
+                        
+                ++mNumFloorPixels;
+            }
         }
         
         //Put wall coords into vertex buffer
-        mVertexBuffer.clear();
-        mVertexBuffer.position(0);
-        mVertexBuffer.put(mWallCoords);
-        mVertexBuffer.position(0);
+        mWallVertexBuffer.clear();
+        mWallVertexBuffer.position(0);
+        mWallVertexBuffer.put(mWallCoords);
+        mWallVertexBuffer.position(0);
         
-        mColorBuffer.clear();
-        mColorBuffer.position(0);
-        mColorBuffer.put(mWallColors);
-        mColorBuffer.position(0);
+        mWallColorBuffer.clear();
+        mWallColorBuffer.position(0);
+        mWallColorBuffer.put(mWallColors);
+        mWallColorBuffer.position(0);
         
-        mTextureBuffer.clear();
-        mTextureBuffer.position(0);
-        mTextureBuffer.put(mTextureCoords);
-        mTextureBuffer.position(0);
+        mWallTextureBuffer.clear();
+        mWallTextureBuffer.position(0);
+        mWallTextureBuffer.put(mWallTextureCoords);
+        mWallTextureBuffer.position(0);
         
         //Draw buffer.
         gl.glClear(GL10.GL_COLOR_BUFFER_BIT);
@@ -134,18 +177,49 @@ public class RaycasterGLRenderer implements Renderer {
         gl.glEnableClientState(GL10.GL_COLOR_ARRAY);
         gl.glEnableClientState(GL10.GL_TEXTURE_COORD_ARRAY);
         
-        gl.glVertexPointer(2, GL10.GL_FLOAT, 0, mVertexBuffer);
+        gl.glVertexPointer(2, GL10.GL_FLOAT, 0, mWallVertexBuffer);
         
-        gl.glColorPointer(4, GL10.GL_FLOAT, 0, mColorBuffer);
+        gl.glColorPointer(4, GL10.GL_FLOAT, 0, mWallColorBuffer);
         
         gl.glBindTexture(GL10.GL_TEXTURE_2D, mTextures[0]);
-        gl.glTexCoordPointer(2, GL10.GL_FLOAT, 0, mTextureBuffer);
+        gl.glTexCoordPointer(2, GL10.GL_FLOAT, 0, mWallTextureBuffer);
         
+        //Draw ze walls!
         gl.glDrawArrays(GL10.GL_LINES, 0, mWallCoords.length / 2);
-    
+        
+        
+        gl.glBindTexture(GL10.GL_TEXTURE_2D, 0);
         gl.glDisableClientState(GL10.GL_TEXTURE_COORD_ARRAY);
         gl.glDisableClientState(GL10.GL_COLOR_ARRAY);
         gl.glDisableClientState(GL10.GL_VERTEX_ARRAY);
+        
+
+        gl.glEnableClientState(GL10.GL_VERTEX_ARRAY);
+        //gl.glEnableClientState(GL10.GL_COLOR_ARRAY);
+        gl.glEnableClientState(GL10.GL_TEXTURE_COORD_ARRAY);
+        
+        mFloorVertexBuffer.clear();
+        mFloorVertexBuffer.position(0);
+        mFloorVertexBuffer.put(mFloorCoords);
+        mFloorVertexBuffer.position(0);
+        
+        mFloorTextureBuffer.clear();
+        mFloorTextureBuffer.position(0);
+        mFloorTextureBuffer.put(mFloorTextureCoords);
+        mFloorTextureBuffer.position(0);
+       
+        
+        gl.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        gl.glBindTexture(GL10.GL_TEXTURE_2D, mTextures[1]);
+        gl.glTexCoordPointer(2, GL10.GL_FLOAT, 0, mFloorTextureBuffer);
+        gl.glVertexPointer(2, GL10.GL_FLOAT, 0, mFloorVertexBuffer);
+
+        gl.glDrawArrays(GL10.GL_POINTS, 0, mNumFloorPixels);
+        
+        gl.glDisableClientState(GL10.GL_TEXTURE_COORD_ARRAY);
+        //gl.glDisableClientState(GL10.GL_COLOR_ARRAY);
+        gl.glDisableClientState(GL10.GL_VERTEX_ARRAY);
+        
 
     }
 
@@ -154,26 +228,39 @@ public class RaycasterGLRenderer implements Renderer {
         this.mScreenWidth = width;
         this.mScreenHeight = height;
 
+        mScreenWidth = 320;
+        mScreenHeight = 240;
+        
+        gl.glLineWidth((width / mScreenWidth) * 2.0f);
+        gl.glPointSize((width / mScreenWidth) * 2.0f);
         mWalls = new CollisionInfo[width];
-        for(int i=0; i<width; ++i) {
+        for(int i=0; i<mScreenWidth; ++i) {
             mWalls[i] = new CollisionInfo();
         }
 
-        mWallCoords = new float[4 * width]; // four floats per coord (x1, y1) (x2, y2)
-        mWallColors = new float[8 * width]; // eight colors per wall (r1, g1, b1, a1) (r2, g2, b2, a2)
-        mTextureCoords = new float[4 * width]; // four floats per coord
+        mWallCoords = new float[4 * mScreenWidth]; // four floats per coord (x1, y1) (x2, y2)
+        mWallColors = new float[8 * mScreenWidth]; // eight colors per wall (r1, g1, b1, a1) (r2, g2, b2, a2)
+        mWallTextureCoords = new float[4 * mScreenWidth]; // four floats per coord
 
-        mVertexBuffer  = ByteBuffer.allocateDirect(width * 4 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
-        mColorBuffer   = ByteBuffer.allocateDirect(width * 4 * 8).order(ByteOrder.nativeOrder()).asFloatBuffer();
-        mTextureBuffer = ByteBuffer.allocateDirect(width * 4 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        mFloorCoords = new float[ 2 * mScreenWidth * mScreenHeight];  //There are potentially number of pixels points for floors.
+        mFloorColors = new float[ 2 * mScreenWidth * mScreenHeight];
+        mFloorTextureCoords = new float[ 2 * mScreenWidth * mScreenHeight];
         
-        mDistanceToClipPlane = (width / 2) / Math.tan(mPlayerFOV/2);
-        mPlayerAngleDelta = mPlayerFOV / width;
+        mWallVertexBuffer  = ByteBuffer.allocateDirect(mScreenWidth * 4 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        mWallColorBuffer   = ByteBuffer.allocateDirect(mScreenWidth * 4 * 8).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        mWallTextureBuffer = ByteBuffer.allocateDirect(mScreenWidth * 4 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        
+        mFloorVertexBuffer  = ByteBuffer.allocateDirect(mScreenWidth * mScreenHeight * 2 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        mFloorColorBuffer   = ByteBuffer.allocateDirect(mScreenWidth * mScreenHeight * 2 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        mFloorTextureBuffer = ByteBuffer.allocateDirect(mScreenWidth * mScreenHeight * 2 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        
+        mDistanceToClipPlane = (mScreenWidth / 2) / Math.tan(mPlayerFOV/2);
+        mPlayerAngleDelta = mPlayerFOV / mScreenWidth;
         
         gl.glViewport(0, 0, width, height);
         gl.glMatrixMode(GL10.GL_PROJECTION);
         gl.glLoadIdentity();
-        GLU.gluOrtho2D(gl, 0, width, 0, height);
+        GLU.gluOrtho2D(gl, 0, mScreenWidth, 0, mScreenHeight);
         
         gl.glMatrixMode(GL10.GL_MODELVIEW);
         gl.glLoadIdentity();
@@ -220,6 +307,7 @@ public class RaycasterGLRenderer implements Renderer {
         for(int w = 0; w < mScreenWidth; ++w) {
             GetDistanceToWall(mWalls[w], mPlayerX, mPlayerY, currentAngle);
             mWalls[w].Distance *= Math.cos(mPlayerAngle - currentAngle); //Normalize, to prevent fish-eye. stupid fish
+            mWalls[w].Angle = currentAngle;
             currentAngle = normalize(currentAngle + mPlayerAngleDelta);
         }
     }
